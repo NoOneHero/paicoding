@@ -460,13 +460,10 @@ public class RedisClient {
         }
 
         public void execute() {
-            template.executePipelined(new RedisCallback<Object>() {
-                @Override
-                public Object doInRedis(RedisConnection connection) throws DataAccessException {
-                    PipelineAction.this.connection = connection;
-                    run.forEach(Runnable::run);
-                    return null;
-                }
+            template.executePipelined((RedisCallback<Object>) connection -> {
+                PipelineAction.this.connection = connection;
+                run.forEach(Runnable::run);
+                return null;
             });
         }
     }

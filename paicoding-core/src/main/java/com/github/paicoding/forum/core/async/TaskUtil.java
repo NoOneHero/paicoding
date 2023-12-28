@@ -10,20 +10,10 @@ import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.SynchronousQueue;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * 异步工具类
@@ -32,7 +22,7 @@ import java.util.function.Supplier;
  * @date 2023/6/12
  */
 @Slf4j
-public class AsyncUtil {
+public class TaskUtil {
     private static final ThreadFactory THREAD_FACTORY = new ThreadFactory() {
         private final ThreadFactory defaultFactory = Executors.defaultThreadFactory();
         private final AtomicInteger threadNumber = new AtomicInteger(1);
@@ -111,7 +101,7 @@ public class AsyncUtil {
 
 
     public static class CompletableFutureBridge {
-        private List<CompletableFuture> list;
+        private List<Runnable> list;
         private Map<String, Long> cost;
         private String taskName;
 
@@ -126,52 +116,13 @@ public class AsyncUtil {
             cost.put(task, System.currentTimeMillis());
         }
 
-        /**
-         * 异步执行，带返回结果
-         *
-         * @param supplier
-         * @return
-         */
-        public CompletableFutureBridge supplyAsync(Supplier supplier) {
-            return supplyAsync(supplier, executorService);
-        }
-
-        public CompletableFutureBridge supplyAsync(Supplier supplier, ExecutorService executor) {
-            return supplyAsyncWithTimeRecord(supplier, supplier.toString(), executor);
-        }
-
-        public CompletableFutureBridge supplyAsyncWithTimeRecord(Supplier supplier, String name) {
-            return supplyAsyncWithTimeRecord(supplier, name, executorService);
-        }
-
-        public CompletableFutureBridge supplyAsyncWithTimeRecord(Supplier supplier, String name, ExecutorService executor) {
-            list.add(CompletableFuture.supplyAsync(supplyWithTime(supplier, name), executor));
-            return this;
-        }
-
-
-        /**
-         * 异步并发执行，无返回结果
-         *
-         * @param run
-         * @return
-         */
-        public CompletableFutureBridge runAsync(Runnable run) {
-            list.add(CompletableFuture.runAsync(runWithTime(run, run.toString()), executorService));
-            return this;
-        }
-
-        public CompletableFutureBridge runAsync(Runnable run, ExecutorService executor) {
-            return runAsyncWithTimeRecord(run, run.toString(), executor);
-        }
-
 
         public CompletableFutureBridge runAsyncWithTimeRecord(Runnable run, String name) {
             return runAsyncWithTimeRecord(run, name, executorService);
         }
 
         public CompletableFutureBridge runAsyncWithTimeRecord(Runnable run, String name, ExecutorService executor) {
-            list.add(CompletableFuture.runAsync(runWithTime(run, name), executor));
+            list.add(runWithTime(run, name));
             return this;
         }
 
@@ -186,19 +137,15 @@ public class AsyncUtil {
             };
         }
 
-        private Supplier supplyWithTime(Supplier call, String name) {
-            return () -> {
-                startRecord(name);
-                try {
-                    return call.get();
-                } finally {
-                    endRecord(name);
-                }
-            };
+        public CompletableFutureBridge allExecuted() {
+            List<CompletableFuture> futures = list.stream().map(r -> CompletableFuture.runAsync(r, executorService)).collect(Collectors.toList());
+            CompletableFuture.allOf(ArrayUtil.toArray(futures, CompletableFuture.class)).join();
+            endRecord(this.taskName);
+            return this;
         }
 
-        public CompletableFutureBridge allExecuted() {
-            CompletableFuture.allOf(ArrayUtil.toArray(list, CompletableFuture.class)).join();
+        public CompletableFutureBridge syncAllExecuted() {
+            list.stream().forEach(Runnable::run);
             endRecord(this.taskName);
             return this;
         }
@@ -228,12 +175,11 @@ public class AsyncUtil {
                 pf.setMinimumIntegerDigits(2);
                 pf.setMinimumFractionDigits(2);
                 pf.setGroupingUsed(false);
-                // 根据执行时间降序展示，方便查看最长路径
-                cost.entrySet().stream().sorted((o1, o2) -> o2.getValue().compareTo(o1.getValue())).forEach(entry -> {
+                for (Map.Entry<String, Long> entry : cost.entrySet()) {
                     sb.append(entry.getValue()).append("\t\t");
                     sb.append(pf.format(entry.getValue() / (double) totalCost)).append("\t\t");
                     sb.append(entry.getKey()).append("\n");
-                });
+                }
             }
             if (!EnvUtil.isPro()) {
                 log.info("\n---------------------\n{}\n--------------------\n", sb);
