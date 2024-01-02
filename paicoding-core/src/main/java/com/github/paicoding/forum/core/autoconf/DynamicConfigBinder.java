@@ -1,5 +1,6 @@
 package com.github.paicoding.forum.core.autoconf;
 
+import cn.hutool.core.bean.BeanUtil;
 import org.springframework.beans.PropertyEditorRegistry;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.BindHandler;
@@ -16,9 +17,12 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.core.convert.support.DefaultConversionService;
+import org.springframework.core.env.PropertySource;
 import org.springframework.core.env.PropertySources;
 
+import java.util.List;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
  * 自定义动态配置绑定
@@ -75,6 +79,10 @@ public class DynamicConfigBinder {
     }
 
     private Iterable<ConfigurationPropertySource> getConfigurationPropertySources() {
+        List<PropertySource<?>> propertySourceList = (List<PropertySource<?>>) BeanUtil.getFieldValue(this.propertySource, "propertySourceList");
+        propertySourceList = propertySourceList.stream().filter(it -> !"Management Server".equals(it.getName())).collect(Collectors.toList());
+        BeanUtil.setFieldValue(this.propertySource, "propertySourceList", propertySourceList);
+
         return ConfigurationPropertySources.from(this.propertySource);
     }
 
